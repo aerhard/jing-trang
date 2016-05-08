@@ -58,9 +58,6 @@ class OutputHandler extends DefaultHandler {
       systemId = attributes.getValue("", "system-id");
       if ("".equals(systemId))
         systemId = null;
-      message.append(localizer.message(localName.equals("failed-assertion")
-                                       ? "failed_assertion"
-                                       : "report"));
     }
     else if (localName.equals("statement") || localName.equals("diagnostic")) {
       inMessage = true;
@@ -88,7 +85,8 @@ class OutputHandler extends DefaultHandler {
       inMessage = false;
     }
     else if (localName.equals("failed-assertion") || localName.equals("report")) {
-      eh.error(new SAXParseException(message.toString(), null, systemId, lineNumber, columnNumber));
+      String str = message.toString().replaceAll("\\s+", " ").trim();
+      eh.error(new SAXParseException(str, null, systemId, lineNumber, columnNumber));
       message.setLength(0);
     }
   }
