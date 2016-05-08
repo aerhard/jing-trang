@@ -19,10 +19,16 @@ import com.thaiopensource.validate.rng.CompactSchemaReader;
 import com.thaiopensource.xml.sax.ErrorHandlerImpl;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
+import org.xml.sax.XMLReader;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.xml.parsers.SAXParser;
+import com.thaiopensource.xml.sax.Jaxp11XMLReaderCreator;
+import com.thaiopensource.xml.sax.XMLReaderCreator;
+
 
 class Driver {
   static private String usageKey = "usage";
@@ -133,32 +139,47 @@ class Driver {
     long loadedPatternTime = -1;
     boolean hadError = false;
     try {
-      ValidationDriver driver = new ValidationDriver(properties.toPropertyMap(), sr);
-      InputSource in = ValidationDriver.uriOrFileInputSource(args[0]);
-      if (encoding != null)
-        in.setEncoding(encoding);
-      if (driver.loadSchema(in)) {
-        loadedPatternTime = System.currentTimeMillis();
-        if (outputSimplifiedSchema) {
-          String simplifiedSchema = driver.getSchemaProperties().get(RngProperty.SIMPLIFIED_SCHEMA);
-          if (simplifiedSchema == null) {
-            eh.print(localizer.message("no_simplified_schema"));
-            hadError = true;
-          } else
-            System.out.print(simplifiedSchema);
-        }
+      if ("-".equals(args[0])) {
+        XMLReaderCreator xmlReaderCreator = new Jaxp11XMLReaderCreator();
+        XMLReader reader = xmlReaderCreator.createXMLReader();
+        reader.setErrorHandler(eh);
+
         if (systemIn) {
           InputSource xmlIn = new InputSource(System.in);
           if (args.length == 2) xmlIn.setSystemId(args[1]);
-          if (!driver.validate(xmlIn)) hadError = true;
+          reader.parse(xmlIn);
         } else {
           for (int i = 1; i < args.length; i++) {
-            if (!driver.validate(ValidationDriver.uriOrFileInputSource(args[i])))
-              hadError = true;
+            reader.parse(ValidationDriver.uriOrFileInputSource(args[i]));
           }
         }
-      } else
-        hadError = true;
+      } else {
+        ValidationDriver driver = new ValidationDriver(properties.toPropertyMap(), sr);
+        InputSource in = ValidationDriver.uriOrFileInputSource(args[0]);
+        if (encoding != null) in.setEncoding(encoding);
+        if (driver.loadSchema(in)) {
+          loadedPatternTime = System.currentTimeMillis();
+          if (outputSimplifiedSchema) {
+            String simplifiedSchema = driver.getSchemaProperties().get(RngProperty.SIMPLIFIED_SCHEMA);
+            if (simplifiedSchema == null) {
+              eh.print(localizer.message("no_simplified_schema"));
+              hadError = true;
+            } else
+              System.out.print(simplifiedSchema);
+          }
+          if (systemIn) {
+            InputSource xmlIn = new InputSource(System.in);
+            if (args.length == 2) xmlIn.setSystemId(args[1]);
+            if (!driver.validate(xmlIn)) hadError = true;
+          } else {
+            for (int i = 1; i < args.length; i++) {
+              if (!driver.validate(ValidationDriver.uriOrFileInputSource(args[i])))
+                hadError = true;
+            }
+          }
+        } else
+          hadError = true;
+      }
     } catch (SAXException e) {
       hadError = true;
       eh.printException(e);
