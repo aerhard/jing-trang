@@ -3,11 +3,13 @@ package com.thaiopensource.validate.xerces;
 import com.thaiopensource.util.PropertyMap;
 import com.thaiopensource.validate.ValidateProperty;
 import com.thaiopensource.validate.Validator;
+import org.apache.xerces.impl.msg.XMLMessageFormatter;
 import org.apache.xerces.impl.XMLEntityManager;
 import org.apache.xerces.impl.XMLErrorReporter;
 import org.apache.xerces.impl.validation.EntityState;
 import org.apache.xerces.impl.validation.ValidationManager;
 import org.apache.xerces.impl.xs.XMLSchemaValidator;
+import org.apache.xerces.impl.xs.XSMessageFormatter;
 import org.apache.xerces.util.ErrorHandlerWrapper;
 import org.apache.xerces.util.NamespaceSupport;
 import org.apache.xerces.util.ParserConfigurationSettings;
@@ -79,6 +81,19 @@ class ValidatorImpl extends ParserConfigurationSettings implements Validator, Co
       addRecognizedFeatures(components[i].getRecognizedFeatures());
       addRecognizedProperties(components[i].getRecognizedProperties());
     }
+
+    // addition provided by edankert@gmail.com at https://github.com/relaxng/jing-trang/issues/161
+    if (errorReporter.getMessageFormatter(XMLMessageFormatter.XML_DOMAIN) == null) {
+      XMLMessageFormatter xmft = new XMLMessageFormatter();
+      errorReporter.putMessageFormatter(XMLMessageFormatter.XML_DOMAIN, xmft);
+      errorReporter.putMessageFormatter(XMLMessageFormatter.XMLNS_DOMAIN, xmft);
+    }
+    if (errorReporter.getMessageFormatter(XSMessageFormatter.SCHEMA_DOMAIN) ==
+        null) {
+      XSMessageFormatter xmft = new XSMessageFormatter();
+      errorReporter.putMessageFormatter(XSMessageFormatter.SCHEMA_DOMAIN, xmft);
+    }
+
     addRecognizedFeatures(recognizedFeatures);
     addRecognizedProperties(recognizedProperties);
     setFeature(Features.SCHEMA_AUGMENT_PSVI, false);
