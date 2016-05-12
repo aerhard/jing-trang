@@ -26,8 +26,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.xml.parsers.SAXParser;
-import com.thaiopensource.xml.sax.Jaxp11XMLReaderCreator;
-import com.thaiopensource.xml.sax.XMLReaderCreator;
+import javax.xml.parsers.SAXParserFactory;
+import javax.xml.parsers.ParserConfigurationException;
 
 
 class Driver {
@@ -48,11 +48,13 @@ class Driver {
 
   public int doMain(String[] args) {
     ErrorHandlerImpl eh = new ErrorHandlerImpl(System.out);
-    OptionParser op = new OptionParser("itcdfe:p:sC:S", args);
+    OptionParser op = new OptionParser("itcdfe:p:sC:Svx", args);
     PropertyMapBuilder properties = new PropertyMapBuilder();
     properties.put(ValidateProperty.ERROR_HANDLER, eh);
     RngProperty.CHECK_ID_IDREF.add(properties);
     SchemaReader sr = null;
+    boolean validateWithDTD = false;
+    boolean validateWithXSD = false;
     boolean compact = false;
     boolean outputSimplifiedSchema = false;
     List<String> catalogUris = new ArrayList<String>();
@@ -95,7 +97,7 @@ class Driver {
           case 'S':
             systemIn = true;
             break;
-          case 'p': {
+          case 'p':
             if (sr == null)
               sr = new AutoSchemaReader();
             StringOption option = (StringOption) sr.getOption(SchemaReader.BASE_URI + "phase");
@@ -109,8 +111,13 @@ class Driver {
               eh.print(localizer.message("invalid_phase", op.getOptionArg()));
               return 2;
             }
-          }
-          break;
+            break;
+          case 'v':
+            validateWithDTD = true;
+            break;
+          case 'x':
+            validateWithXSD = true;
+            break;
         }
       }
     } catch (OptionParser.InvalidOptionException e) {
@@ -140,10 +147,22 @@ class Driver {
     boolean hadError = false;
     try {
       if ("-".equals(args[0])) {
-        XMLReaderCreator xmlReaderCreator = new Jaxp11XMLReaderCreator();
-        XMLReader reader = xmlReaderCreator.createXMLReader();
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setValidating(validateWithDTD || validateWithXSD);
+        XMLReader reader = null;
+        try {
+          SAXParser parser = factory.newSAXParser();
+          if (validateWithXSD) {
+            parser.setProperty("http://java.sun.com/xml/jaxp/properties/schemaLanguage",
+                "http://www.w3.org/2001/XMLSchema");
+          }
+          reader = parser.getXMLReader();
+        }
+        catch (ParserConfigurationException e) {
+          throw new SAXException(e);
+        }
         reader.setErrorHandler(eh);
-
         if (systemIn) {
           InputSource xmlIn = new InputSource(System.in);
           if (args.length == 2) xmlIn.setSystemId(args[1]);
