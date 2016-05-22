@@ -76,7 +76,10 @@ public class CatalogResolver extends AbstractResolver {
         }
         else {
           ExternalIdentifier xid = (ExternalIdentifier)id;
-          resolved = catalog.resolvePublic(xid.getPublicId(), xid.getUriReference());
+          String publicId = xid.getPublicId();
+          resolved = publicId == null
+              ? catalog.resolveSystem(xid.getUriReference())
+              : catalog.resolvePublic(xid.getPublicId(), xid.getUriReference());
         }
       }
     }
