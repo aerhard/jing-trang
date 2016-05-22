@@ -8,10 +8,10 @@ import java.util.Vector;
 /**
  * A very simple CatalogManager that does not use use property file/system property customization.
  */
-class SimpleCatalogManager extends CatalogManager {
+public class SimpleCatalogManager extends CatalogManager {
   private final Vector<String> catalogUris;
 
-  SimpleCatalogManager(List<String> catalogUris) {
+  public SimpleCatalogManager(List<String> catalogUris) {
     this.catalogUris = new Vector<String>();
     this.catalogUris.addAll(catalogUris);
     // disable printing to System.out
