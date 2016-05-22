@@ -1,33 +1,29 @@
 package com.thaiopensource.relaxng.util;
 
+import com.thaiopensource.resolver.Identifier;
+import com.thaiopensource.resolver.Input;
+import com.thaiopensource.resolver.ResolverException;
 import com.thaiopensource.resolver.catalog.CatalogResolver;
+import com.thaiopensource.resolver.xml.ExternalIdentifier;
 import com.thaiopensource.util.Localizer;
 import com.thaiopensource.util.OptionParser;
 import com.thaiopensource.util.PropertyMapBuilder;
 import com.thaiopensource.util.UriOrFile;
 import com.thaiopensource.util.Version;
-import com.thaiopensource.validate.Flag;
-import com.thaiopensource.validate.FlagOption;
-import com.thaiopensource.validate.OptionArgumentException;
-import com.thaiopensource.validate.SchemaReader;
-import com.thaiopensource.validate.StringOption;
-import com.thaiopensource.validate.ValidateProperty;
-import com.thaiopensource.validate.ValidationDriver;
+import com.thaiopensource.validate.*;
 import com.thaiopensource.validate.auto.AutoSchemaReader;
 import com.thaiopensource.validate.prop.rng.RngProperty;
 import com.thaiopensource.validate.rng.CompactSchemaReader;
 import com.thaiopensource.xml.sax.ErrorHandlerImpl;
+import com.thaiopensource.xml.sax.Sax2XMLReaderCreator;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.XMLReader;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
-import javax.xml.parsers.ParserConfigurationException;
 
 
 class Driver {
@@ -48,16 +44,18 @@ class Driver {
 
   public int doMain(String[] args) {
     ErrorHandlerImpl eh = new ErrorHandlerImpl(System.out);
-    OptionParser op = new OptionParser("itcdfe:p:sC:Svx", args);
+    OptionParser op = new OptionParser("itcdfe:p:sC:Svxr", args);
     PropertyMapBuilder properties = new PropertyMapBuilder();
     properties.put(ValidateProperty.ERROR_HANDLER, eh);
     RngProperty.CHECK_ID_IDREF.add(properties);
     SchemaReader sr = null;
     boolean validateWithDTD = false;
     boolean validateWithXSD = false;
+    boolean resolveSchemaPath = false;
     boolean compact = false;
     boolean outputSimplifiedSchema = false;
     List<String> catalogUris = new ArrayList<String>();
+    CatalogResolver resolver = null;
 
     try {
       while (op.moveToNextOption()) {
@@ -118,6 +116,9 @@ class Driver {
           case 'x':
             validateWithXSD = true;
             break;
+          case 'r':
+            resolveSchemaPath = true;
+            break;
         }
       }
     } catch (OptionParser.InvalidOptionException e) {
@@ -129,7 +130,8 @@ class Driver {
     }
     if (!catalogUris.isEmpty()) {
       try {
-        properties.put(ValidateProperty.RESOLVER, new CatalogResolver(catalogUris));
+        resolver = new CatalogResolver(catalogUris);
+        properties.put(ValidateProperty.RESOLVER, resolver);
       } catch (LinkageError e) {
         eh.print(localizer.message("resolver_not_found"));
         return 2;
@@ -145,24 +147,19 @@ class Driver {
     long startTime = System.currentTimeMillis();
     long loadedPatternTime = -1;
     boolean hadError = false;
+
     try {
       if ("-".equals(args[0])) {
-        SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(true);
-        factory.setValidating(validateWithDTD || validateWithXSD);
-        XMLReader reader = null;
-        try {
-          SAXParser parser = factory.newSAXParser();
-          if (validateWithXSD) {
-            parser.setProperty("http://java.sun.com/xml/jaxp/properties/schemaLanguage",
-                "http://www.w3.org/2001/XMLSchema");
-          }
-          reader = parser.getXMLReader();
-        }
-        catch (ParserConfigurationException e) {
-          throw new SAXException(e);
-        }
+        Sax2XMLReaderCreator xrc = new Sax2XMLReaderCreator();
+        properties.put(ValidateProperty.XML_READER_CREATOR, xrc);
+
+        XMLReader reader = ResolverFactory.createResolver(properties.toPropertyMap()).createXMLReader();
+        reader.setFeature("http://xml.org/sax/features/namespaces", true);
+        reader.setFeature("http://xml.org/sax/features/namespace-prefixes", false);
+        reader.setFeature("http://xml.org/sax/features/validation", validateWithDTD || validateWithXSD);
+        reader.setFeature("http://apache.org/xml/features/validation/schema", validateWithXSD);
         reader.setErrorHandler(eh);
+
         if (systemIn) {
           InputSource xmlIn = new InputSource(System.in);
           if (args.length == 2) xmlIn.setSystemId(args[1]);
@@ -173,8 +170,23 @@ class Driver {
           }
         }
       } else {
+        String resolvedSchemaURI = null;
+
+        if (resolver != null) {
+          if (resolveSchemaPath) {
+            String cwd = new File(".").getCanonicalPath();
+            Identifier schemaIdentifier = new ExternalIdentifier(args[0], cwd, args[0]);
+            Input input = new Input();
+            resolver.resolve(schemaIdentifier, input);
+            resolvedSchemaURI = input.getUri();
+          }
+        }
+
         ValidationDriver driver = new ValidationDriver(properties.toPropertyMap(), sr);
-        InputSource in = ValidationDriver.uriOrFileInputSource(args[0]);
+        InputSource in = resolvedSchemaURI != null
+            ? new InputSource(resolvedSchemaURI)
+            : ValidationDriver.uriOrFileInputSource(args[0]);
+
         if (encoding != null) in.setEncoding(encoding);
         if (driver.loadSchema(in)) {
           loadedPatternTime = System.currentTimeMillis();
@@ -203,6 +215,9 @@ class Driver {
       hadError = true;
       eh.printException(e);
     } catch (IOException e) {
+      hadError = true;
+      eh.printException(e);
+    } catch (ResolverException e) {
       hadError = true;
       eh.printException(e);
     }
