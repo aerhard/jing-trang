@@ -6,8 +6,8 @@ import java.util.Vector;
 public abstract class Annotated extends SourceObject {
   private final List<Comment> leadingComments = new Vector<Comment>();
   private final List<AttributeAnnotation> attributeAnnotations = new Vector<AttributeAnnotation>();
-  private final List<AnnotationChild> childElementAnnotations = new Vector<AnnotationChild>();
-  private final List<AnnotationChild> followingElementAnnotations = new Vector<AnnotationChild>();
+  private List<AnnotationChild> childElementAnnotations = new Vector<AnnotationChild>();
+  private List<AnnotationChild> followingElementAnnotations = new Vector<AnnotationChild>();
   private NamespaceContext context;
 
   public List<Comment> getLeadingComments() {
@@ -22,9 +22,13 @@ public abstract class Annotated extends SourceObject {
     return childElementAnnotations;
   }
 
+  public void setChildElementAnnotations(List<AnnotationChild> a) { childElementAnnotations = a; }
+
   public List<AnnotationChild> getFollowingElementAnnotations() {
     return followingElementAnnotations;
   }
+
+  public void setFollowingElementAnnotations(List<AnnotationChild> a) { followingElementAnnotations = a; }
 
   public boolean mayContainText() {
     return false;
