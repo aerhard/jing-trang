@@ -11,8 +11,8 @@
     <xmlproperty file="version.xml"/>
     <property name="build.dir" value="${{basedir}}/build"/>
     <property name="javacc.dir" value="lib"/>
-    <property name="ant.build.javac.source" value="1.5"/>
-    <property name="ant.build.javac.target" value="1.5"/>
+    <property name="ant.build.javac.source" value="1.6"/>
+    <property name="ant.build.javac.target" value="1.6"/>
     <taskdef name="testng" classname="org.testng.TestNGAntTask">
       <classpath>
 	<pathelement location="lib/testng.jar"/>
@@ -39,9 +39,9 @@
 	</xsl:for-each>
       </xsl:attribute>
     </target>
-    <target name="compile" depends="mod.jing.compile-main,mod.trang.compile-main"/>
-    <target name="jar" depends="mod.dtdinst.jar,mod.jing.jar,mod.trang.jar"/>
-    <target name="srczip" depends="mod.dtdinst.srczip,mod.jing.srczip,mod.trang.srczip"/>
+    <target name="compile" depends="mod.jing.compile-main,mod.jing-suggest.compile-main,mod.trang.compile-main"/>
+    <target name="jar" depends="mod.dtdinst.jar,mod.jing.jar,mod.jing-suggest.jar,mod.trang.jar"/>
+    <target name="srczip" depends="mod.dtdinst.srczip,mod.jing.srczip,mod.jing-suggest.srczip,mod.trang.srczip"/>
     <target name="jing-jar" depends="mod.jing.jar">
       <taskdef name="jing" classname="com.thaiopensource.relaxng.util.JingTask">
 	<classpath>
