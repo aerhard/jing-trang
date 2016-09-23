@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager" LANGUAGE_LEVEL="JDK_1_6" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/mod/catalog/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/regex/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/xsd-datatype/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/infer/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/jing-suggest/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/jaxp/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/rng-jarv/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/picl/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/regex/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/util/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/nvdl/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/rng-validate/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/convert-from-xml/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/datatype/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/pattern/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/rng-jaxp/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/convert-from-dtd/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/convert-to-dtd/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/infer/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/trang/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/dtd-parse/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/dtdinst/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/validate/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/datatype-sample/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/dtdinst/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/resolver/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/rng-parse/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/rng-schema/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/pattern/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/xsd-datatype/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/convert-to-xsd/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/catalog/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/schematron/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/rng-jaxp/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/regex-gen/src/main" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/util/src/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/mod/xerces/src/main" isTestSource="false" />
+    </content>
+    <orderEntry type="jdk" jdkName="1.6" jdkType="JavaSDK" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>
