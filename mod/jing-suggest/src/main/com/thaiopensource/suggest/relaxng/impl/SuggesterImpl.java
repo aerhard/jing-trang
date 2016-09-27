@@ -4,8 +4,8 @@ package com.thaiopensource.suggest.relaxng.impl;
 
 import com.thaiopensource.suggest.*;
 import com.thaiopensource.datatype.Datatype2;
-import com.thaiopensource.relaxng.sax.Context;
 import com.thaiopensource.suggest.relaxng.pattern.*;
+import com.thaiopensource.suggest.relaxng.sax.Context;
 import com.thaiopensource.xml.util.Name;
 
 import org.relaxng.datatype.Datatype;
@@ -27,11 +27,9 @@ public class SuggesterImpl extends Context implements Suggester {
   private final StringBuilder charBuf = new StringBuilder();
   private Locator locator = null;
 
-
   private Name lastName = null;
   private Attributes lastAtts = null;
   private Stack<String> qNames = new Stack<String>();
-
 
   public SuggesterImpl(Pattern pattern, ValidatorPatternBuilder builder, ErrorHandler eh) {
     this.matcher = new PatternMatcher(pattern, builder);
@@ -161,20 +159,45 @@ public class SuggesterImpl extends Context implements Suggester {
 
     NormalizedSuggestions nss = matcher.getStartTagSuggestions();
 
+    Set<String> nsValues = new HashSet<String>();
+    String defaultNsUri = null;
+
     if (nss.isAnyNameIncluded()) {
-      suggestions.add(new ElementSuggestion("*#*", null, null, false));
+      Map<String, String> prefixMap = getPrefixMap();
+
+      prefixMap.remove("xml");
+      prefixMap.put(null, "*");
+      defaultNsUri = prefixMap.get("");
+
+      Set<String> excludedNamespaces = new HashSet<String>();
+      for (NamespaceSuggestion s : nss.getExcludedNamespaces()) {
+        excludedNamespaces.add(s.getNamespace());
+      }
+
+      for (Map.Entry<String, String> entry : prefixMap.entrySet()) {
+        String nsUri = entry.getValue();
+
+        if (!excludedNamespaces.contains(nsUri)) {
+          String prefix = entry.getKey();
+          nsValues.add(createNamespaceValue(nsUri, prefix, defaultNsUri));
+        }
+      }
     }
 
     if (nss.hasNamedInclusions()) {
-      String defaultNsUri = resolveNamespacePrefix("");
+      if (defaultNsUri == null) defaultNsUri = resolveNamespacePrefix("");
 
       Set<NameSuggestion> names = nss.getIncludedNames();
       suggestions.addAll(formatElementSuggestions(names, defaultNsUri));
 
       Set<NamespaceSuggestion> namespaces = nss.getIncludedNamespaces();
       for (NamespaceSuggestion namespace : namespaces) {
-        suggestions.add(formatElementNamespaceSuggestion(namespace, defaultNsUri));
+        nsValues.add(createNamespaceValue(namespace.getNamespace(), defaultNsUri));
       }
+    }
+
+    for (String value : nsValues) {
+      suggestions.add(new ElementSuggestion(value, null, null, false));
     }
 
     return suggestions;
@@ -208,22 +231,6 @@ public class SuggesterImpl extends Context implements Suggester {
     List<String> annotations = createAnnotations(mentionedName.getPattern(), mentionedName.getNameClass());
 
     return new ElementSuggestion(value, annotations, attributes, false);
-  }
-
-  private ElementSuggestion formatElementNamespaceSuggestion(NamespaceSuggestion namespaceSuggestion, String defaultNsUri) {
-    String namespace = namespaceSuggestion.getNamespace();
-    String value = createNamespace(namespace, defaultNsUri);
-    List<String> annotations = createAnnotations(namespaceSuggestion.getPattern(), namespaceSuggestion.getNameClass());
-
-    return new ElementSuggestion(value, annotations, null, false);
-  }
-
-  private AttributeNameSuggestion formatAttributeNamespaceSuggestion(NamespaceSuggestion namespaceSuggestion, String defaultNsUri) {
-    String namespace = namespaceSuggestion.getNamespace();
-    String value = createNamespace(namespace, defaultNsUri);
-    List<String> annotations = createAnnotations(namespaceSuggestion.getPattern(), namespaceSuggestion.getNameClass());
-
-    return new AttributeNameSuggestion(value, annotations);
   }
 
   private List<String> createAnnotations(Pattern pattern, NameClass nameClass) {
@@ -264,23 +271,25 @@ public class SuggesterImpl extends Context implements Suggester {
     return sb.toString();
   }
 
-  private String createNamespace(String namespace, String defaultNsUri) {
-    StringBuilder sb = new StringBuilder();
-
+  private String createNamespaceValue(String namespace, String defaultNsUri) {
     if (defaultNsUri != null && defaultNsUri.equals(namespace)) {
-      sb.append("*");
-    } else {
-      String prefix = getPrefix(namespace);
-      if (prefix != null && !"".equals(prefix)) {
-        sb.append(prefix);
-        sb.append(":*");
-      } else {
-        sb.append("*#");
-        sb.append(namespace);
-      }
+      return "*";
     }
 
-    return sb.toString();
+    String prefix = getPrefix(namespace);
+    return prefix != null && !"".equals(prefix)
+      ? prefix + ":*"
+      : "*#" + namespace;
+  }
+
+  private String createNamespaceValue(String namespace, String prefix, String defaultNsUri) {
+    if (defaultNsUri != null && defaultNsUri.equals(namespace)) {
+      return "*";
+    }
+
+    return prefix != null && !"".equals(prefix)
+      ? prefix + ":*"
+      : "*#" + namespace;
   }
 
   private String createAttributeNameValue(Name name) {
@@ -312,8 +321,28 @@ public class SuggesterImpl extends Context implements Suggester {
 
     NormalizedSuggestions nss = matcher.getAttributeNameSuggestions();
 
+    Set<String> nsValues = new HashSet<String>();
+    String defaultNsUri = "";
+
     if (nss.isAnyNameIncluded()) {
-      suggestions.add(new AttributeNameSuggestion("*#*", null));
+      Map<String, String> prefixMap = getPrefixMap();
+
+      prefixMap.put(null, "*");
+      prefixMap.put("", defaultNsUri);
+
+      Set<String> excludedNamespaces = new HashSet<String>();
+      for (NamespaceSuggestion s : nss.getExcludedNamespaces()) {
+        excludedNamespaces.add(s.getNamespace());
+      }
+
+      for (Map.Entry<String, String> entry : prefixMap.entrySet()) {
+        String nsUri = entry.getValue();
+
+        if (!excludedNamespaces.contains(nsUri)) {
+          String prefix = entry.getKey();
+          nsValues.add(createNamespaceValue(nsUri, prefix, defaultNsUri));
+        }
+      }
     }
 
     if (nss.hasNamedInclusions()) {
@@ -324,11 +353,13 @@ public class SuggesterImpl extends Context implements Suggester {
       suggestions.addAll(formatPossibleAttributeSuggestions(names));
 
       Set<NamespaceSuggestion> namespaces = nss.getIncludedNamespaces();
-      String defaultNsUri = "";
-
       for (NamespaceSuggestion namespace : namespaces) {
-        suggestions.add(formatAttributeNamespaceSuggestion(namespace, defaultNsUri));
+        nsValues.add(createNamespaceValue(namespace.getNamespace(), defaultNsUri));
       }
+    }
+
+    for (String value : nsValues) {
+      suggestions.add(new AttributeNameSuggestion(value, null));
     }
 
     return suggestions;
