@@ -71,6 +71,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
 
   SuggesterImpl(SymbolTable symbolTable, XMLGrammarPool grammarPool, PropertyMap properties) {
     this.symbolTable = symbolTable;
+
     XMLErrorHandler errorHandlerWrapper = new ErrorHandlerWrapper(properties.get(ValidateProperty.ERROR_HANDLER));
     components = new XMLComponent[]{errorReporter, schemaValidator, entityManager};
     for (XMLComponent component : components) {
@@ -80,7 +81,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
 
     addRecognizedFeatures(recognizedFeatures);
     addRecognizedProperties(recognizedProperties);
-    setFeature(Features.SCHEMA_AUGMENT_PSVI, false);
+    setFeature(Features.SCHEMA_AUGMENT_PSVI, true);
     setFeature(Features.SCHEMA_FULL_CHECKING, true);
     setFeature(Features.VALIDATION, true);
     setFeature(Features.SCHEMA_VALIDATION, true);
@@ -162,8 +163,6 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
     qNames.push(qName);
 
     try {
-      attributes.removeAllAttributes();
-
       if (!pushedContext)
         namespaceContext.pushContext();
       else
@@ -174,7 +173,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
             atts.getValue(i));
       }
       schemaValidator.startElement(makeQName(namespaceURI, localName, qName), attributes, null);
-
+      attributes.removeAllAttributes();
     } catch (XNIException e) {
       throw toSAXException(e);
     }

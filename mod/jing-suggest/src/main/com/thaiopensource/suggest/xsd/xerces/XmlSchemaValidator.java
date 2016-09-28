@@ -46,6 +46,7 @@ import org.apache.xerces.impl.xs.identity.XPathMatcher;
 import org.apache.xerces.impl.xs.models.CMBuilder;
 import org.apache.xerces.impl.xs.models.CMNodeFactory;
 import org.apache.xerces.impl.xs.models.XSCMValidator;
+import org.apache.xerces.util.AugmentationsImpl;
 import org.apache.xerces.util.IntStack;
 import org.apache.xerces.util.SymbolTable;
 import org.apache.xerces.util.XMLAttributesImpl;
@@ -136,6 +137,10 @@ public class XmlSchemaValidator
     /** Feature identifier: send element default value via characters() */
     protected static final String SCHEMA_ELEMENT_DEFAULT =
         Constants.XERCES_FEATURE_PREFIX + Constants.SCHEMA_ELEMENT_DEFAULT;
+
+    /** Feature identifier: augment PSVI */
+    protected static final String SCHEMA_AUGMENT_PSVI =
+        Constants.XERCES_FEATURE_PREFIX + Constants.SCHEMA_AUGMENT_PSVI;
 
     /** Feature identifier: whether to recognize java encoding names */
     protected static final String ALLOW_JAVA_ENCODINGS =
@@ -319,6 +324,11 @@ public class XmlSchemaValidator
     private static final Object[] PROPERTY_DEFAULTS =
         { null, null, null, null, null, null, null, null, null, null, null};
 
+    // this is the number of valuestores of each kind
+    // we expect an element to have.  It's almost
+    // never > 1; so leave it at that.
+    protected static final int ID_CONSTRAINT_NUM = 1;
+
     // xsi:* attribute declarations
     static final XSAttributeDecl XSI_TYPE = SchemaGrammar.SG_XSI.getGlobalAttributeDecl(SchemaSymbols.XSI_TYPE);
     static final XSAttributeDecl XSI_NIL = SchemaGrammar.SG_XSI.getGlobalAttributeDecl(SchemaSymbols.XSI_NIL);
@@ -333,7 +343,14 @@ public class XmlSchemaValidator
     //
 
     /** current PSVI element info */
-    protected XSElementDeclaration fCurrentPSVIElementDecl = null;
+    protected ElementPSVImpl fCurrentPSVI = new ElementPSVImpl();
+
+    // since it is the responsibility of each component to an
+    // Augmentations parameter if one is null, to save ourselves from
+    // having to create this object continually, it is created here.
+    // If it is not present in calls that we're passing on, we *must*
+    // clear this before we introduce it into the pipeline.
+    protected final AugmentationsImpl fAugmentations = new AugmentationsImpl();
 
     // this is included for the convenience of handleEndElement
     protected XMLString fDefaultValue;
@@ -345,6 +362,7 @@ public class XmlSchemaValidator
     protected boolean fFullChecking = false;
     protected boolean fNormalizeData = true;
     protected boolean fSchemaElementDefault = true;
+    protected boolean fAugPSVI = true;
     protected boolean fIdConstraint = false;
     protected boolean fUseGrammarPoolOnly = false;
 
@@ -381,6 +399,7 @@ public class XmlSchemaValidator
         // store error codes; starting position of the errors for each element;
         // number of element (depth); and whether to record error
         Vector fErrors = new Vector();
+        int[] fContext = new int[INITIAL_STACK_SIZE];
         int fContextCount;
 
         // set the external error reporter, clear errors
@@ -390,11 +409,91 @@ public class XmlSchemaValidator
             fContextCount = 0;
         }
 
-        public void pushContext() {}
+        // should be called when starting process an element or an attribute.
+        // store the starting position for the current context
+        public void pushContext() {
+            if (!fAugPSVI) {
+                return;
+            }
+            // resize array if necessary
+            if (fContextCount == fContext.length) {
+                int newSize = fContextCount + INC_STACK_SIZE;
+                int[] newArray = new int[newSize];
+                System.arraycopy(fContext, 0, newArray, 0, fContextCount);
+                fContext = newArray;
+            }
+
+            fContext[fContextCount++] = fErrors.size();
+        }
+
+        // should be called on endElement: get all errors of the current element
+        public String[] popContext() {
+            if (!fAugPSVI) {
+                return null;
+            }
+            // get starting position of the current element
+            int contextPos = fContext[--fContextCount];
+            // number of errors of the current element
+            int size = fErrors.size() - contextPos;
+            // if no errors, return null
+            if (size == 0)
+                return null;
+            // copy errors from the list to an string array
+            String[] errors = new String[size];
+            for (int i = 0; i < size; i++) {
+                errors[i] = (String) fErrors.elementAt(contextPos + i);
+            }
+            // remove errors of the current element
+            fErrors.setSize(contextPos);
+            return errors;
+        }
+
+        // should be called when an attribute is done: get all errors of
+        // this attribute, but leave the errors to the containing element
+        // also called after an element was strictly assessed.
+        public String[] mergeContext() {
+            if (!fAugPSVI) {
+                return null;
+            }
+            // get starting position of the current element
+            int contextPos = fContext[--fContextCount];
+            // number of errors of the current element
+            int size = fErrors.size() - contextPos;
+            // if no errors, return null
+            if (size == 0)
+                return null;
+            // copy errors from the list to an string array
+            String[] errors = new String[size];
+            for (int i = 0; i < size; i++) {
+                errors[i] = (String) fErrors.elementAt(contextPos + i);
+            }
+            // don't resize the vector: leave the errors for this attribute
+            // to the containing element
+            return errors;
+        }
+
         public void reportError(String domain, String key, Object[] arguments, short severity)
             throws XNIException {
-            fErrorReporter.reportError(domain, key, arguments, severity);
+            String message = fErrorReporter.reportError(domain, key, arguments, severity);
+            if (fAugPSVI) {
+                fErrors.addElement(key);
+                fErrors.addElement(message);
+            }
         } // reportError(String,String,Object[],short)
+
+        public void reportError(
+            XMLLocator location,
+            String domain,
+            String key,
+            Object[] arguments,
+            short severity)
+            throws XNIException {
+            String message = fErrorReporter.reportError(location, domain, key, arguments, severity);
+            if (fAugPSVI) {
+                fErrors.addElement(key);
+                fErrors.addElement(message);
+            }
+        } // reportError(XMLLocator,String,String,Object[],short)
     }
 
     /** Error reporter. */
@@ -419,6 +518,7 @@ public class XmlSchemaValidator
     protected final XSDDescription fXSDDescription = new XSDDescription();
     protected final Hashtable fLocationPairs = new Hashtable();
     protected final Hashtable fExpandedLocationPairs = new Hashtable();
+    protected final ArrayList fUnparsedLocations = new ArrayList();
 
 
     // handlers
@@ -848,6 +948,10 @@ public class XmlSchemaValidator
     // DOMRevalidationHandler methods
     //
 
+
+
+
+
     public boolean characterData(String data, Augmentations augs) {
 
         fSawText = fSawText || data.length() > 0;
@@ -885,6 +989,10 @@ public class XmlSchemaValidator
         }
 
         return allWhiteSpace;
+    }
+
+    public void elementDefault(String data) {
+        // no-op
     }
 
     //
@@ -1071,6 +1179,12 @@ public class XmlSchemaValidator
     /** Skip validation: anything below this level should be skipped */
     private int fSkipValidationDepth;
 
+    /** anything above this level has validation_attempted != full */
+    private int fNFullValidationDepth;
+
+    /** anything above this level has validation_attempted != none */
+    private int fNNoneValidationDepth;
+
     /** Element depth: -2: validator not in pipeline; >= -1 current depth. */
     private int fElementDepth;
 
@@ -1231,6 +1345,8 @@ public class XmlSchemaValidator
         fCurrentCM = null;
         fCurrCMState = null;
         fSkipValidationDepth = -1;
+        fNFullValidationDepth = -1;
+        fNNoneValidationDepth = -1;
         fElementDepth = -1;
         fSubElement = false;
         fSchemaDynamicValidation = false;
@@ -1322,6 +1438,11 @@ public class XmlSchemaValidator
             fSchemaElementDefault = false;
         }
 
+        try {
+            fAugPSVI = componentManager.getFeature(SCHEMA_AUGMENT_PSVI);
+        } catch (XMLConfigurationException e) {
+            fAugPSVI = true;
+        }
         try {
             fSchemaType =
                 (String) componentManager.getProperty(
@@ -1585,6 +1706,10 @@ public class XmlSchemaValidator
         if (fIDCChecking) {
             fValueStoreCache.startDocument();
         }
+        if (fAugPSVI) {
+            fCurrentPSVI.fGrammars = null;
+            fCurrentPSVI.fSchemaInformation = null;
+        }
     } // handleStartDocument(XMLLocator,String)
 
     void handleEndDocument() {
@@ -1793,7 +1918,8 @@ public class XmlSchemaValidator
         // REVISIT:  is this the correct behaviour for ID constraints?  -NG
         if (fSkipValidationDepth >= 0) {
             fElementDepth++;
-            fCurrentPSVIElementDecl = null;
+            if (fAugPSVI)
+            	augs = getEmptyAugs(augs);
             return augs;
         }
 
@@ -1907,7 +2033,8 @@ public class XmlSchemaValidator
         // if the wildcard is skip, then return
         if (wildcard != null && wildcard.fProcessContents == XSWildcardDecl.PC_SKIP) {
             fSkipValidationDepth = fElementDepth;
-            fCurrentPSVIElementDecl = null;
+            if (fAugPSVI)
+                augs = getEmptyAugs(augs);
             return augs;
         }
 
@@ -1990,7 +2117,8 @@ public class XmlSchemaValidator
                     }
 
                     fSkipValidationDepth = fElementDepth;
-                    fCurrentPSVIElementDecl = null;
+                    if (fAugPSVI)
+                        augs = getEmptyAugs(augs);
                     return augs;
                 }
                 // We don't call reportSchemaError here, because the spec
@@ -2017,6 +2145,7 @@ public class XmlSchemaValidator
             // element, or to skip it. Now we choose lax assessment.
             fCurrentType = SchemaGrammar.fAnyType;
             fStrictAssess = false;
+            fNFullValidationDepth = fElementDepth;
             // any type has mixed content, so we don't need to append buffer
             fAppendBuffer = false;
 
@@ -2043,6 +2172,7 @@ public class XmlSchemaValidator
                 }
             }
 
+            fNNoneValidationDepth = fElementDepth;
             // if the element has a fixed value constraint, we need to append
             if (fCurrentElemDecl != null
                 && fCurrentElemDecl.getConstraintType() == VC_FIXED) {
@@ -2162,10 +2292,24 @@ public class XmlSchemaValidator
         int count = fMatcherStack.getMatcherCount();
         for (int i = 0; i < count; i++) {
             XPathMatcher matcher = fMatcherStack.getMatcherAt(i);
-            matcher.startElement( element, attributes);
+            matcher.startElement(element, attributes);
         }
 
-        fCurrentPSVIElementDecl = fCurrentElemDecl;
+        if (fAugPSVI) {
+            augs = getEmptyAugs(augs);
+
+            // PSVI: add validation context
+            fCurrentPSVI.fValidationContext = fValidationRoot;
+            // PSVI: add element declaration
+            fCurrentPSVI.fDeclaration = fCurrentElemDecl;
+            // PSVI: add element type
+            fCurrentPSVI.fTypeDecl = fCurrentType;
+            // PSVI: add notation attribute
+            fCurrentPSVI.fNotation = fNotation;
+            // PSVI: add nil
+            fCurrentPSVI.fNil = fNil;
+        }
+
         return augs;
 
     } // handleStartElement(QName,XMLAttributes,boolean)
@@ -2182,11 +2326,11 @@ public class XmlSchemaValidator
         }
         // if we are skipping, return
         if (fSkipValidationDepth >= 0) {
-
             // but if this is the top element that we are skipping,
             // restore the states.
             if (fSkipValidationDepth == fElementDepth && fSkipValidationDepth > 0) {
                 // set the partial validation depth to the depth of parent
+                fNFullValidationDepth = fSkipValidationDepth - 1;
                 fSkipValidationDepth = -1;
                 fElementDepth--;
                 fSubElement = fSubElementStack[fElementDepth];
@@ -2217,7 +2361,8 @@ public class XmlSchemaValidator
                     fXSIErrorReporter.fErrorReporter);
             }
 
-            fCurrentPSVIElementDecl = null;
+            if (fAugPSVI)
+                augs = getEmptyAugs(augs);
             return augs;
         }
 
@@ -2322,10 +2467,12 @@ public class XmlSchemaValidator
                 }
                 fGrammarPool.cacheGrammars(XMLGrammarDescription.XML_SCHEMA, grammars);
             }
-            fCurrentPSVIElementDecl = fCurrentElemDecl;
+            augs = endElementPSVI(true, grammars, augs);
             fElementDepth--;
         } else {
-            fCurrentPSVIElementDecl = fCurrentElemDecl;
+            augs = endElementPSVI(false, grammars, augs);
+
+            // decrease element depth and restore states
             fElementDepth--;
 
             // get the states for the parent element.
@@ -2355,6 +2502,93 @@ public class XmlSchemaValidator
 
         return augs;
     } // handleEndElement(QName,boolean)*/
+
+    final Augmentations endElementPSVI(
+        boolean root,
+        SchemaGrammar[] grammars,
+        Augmentations augs) {
+
+        if (fAugPSVI) {
+            augs = getEmptyAugs(augs);
+
+            // the 5 properties sent on startElement calls
+            fCurrentPSVI.fDeclaration = this.fCurrentElemDecl;
+            fCurrentPSVI.fTypeDecl = this.fCurrentType;
+            fCurrentPSVI.fNotation = this.fNotation;
+            fCurrentPSVI.fValidationContext = this.fValidationRoot;
+            fCurrentPSVI.fNil = this.fNil;
+            // PSVI: validation attempted
+            // nothing below or at the same level has none or partial
+            // (which means this level is strictly assessed, and all chidren
+            // are full), so this one has full
+            if (fElementDepth > fNFullValidationDepth) {
+                fCurrentPSVI.fValidationAttempted = ElementPSVI.VALIDATION_FULL;
+            }
+            // nothing below or at the same level has full or partial
+            // (which means this level is not strictly assessed, and all chidren
+            // are none), so this one has none
+            else if (fElementDepth > fNNoneValidationDepth) {
+                fCurrentPSVI.fValidationAttempted = ElementPSVI.VALIDATION_NONE;
+            }
+            // otherwise partial, and anything above this level will be partial
+            else {
+                fCurrentPSVI.fValidationAttempted = ElementPSVI.VALIDATION_PARTIAL;
+            }
+
+            // this guarantees that depth settings do not cross-over between sibling nodes
+            if (fNFullValidationDepth == fElementDepth) {
+                fNFullValidationDepth = fElementDepth - 1;
+            }
+            if (fNNoneValidationDepth == fElementDepth) {
+                fNNoneValidationDepth = fElementDepth - 1;
+            }
+
+            if (fDefaultValue != null)
+                fCurrentPSVI.fSpecified = true;
+            fCurrentPSVI.fValue.copyFrom(fValidatedInfo);
+
+            if (fStrictAssess) {
+                // get all errors for the current element, its attribute,
+                // and subelements (if they were strictly assessed).
+                // any error would make this element invalid.
+                // and we merge these errors to the parent element.
+                String[] errors = fXSIErrorReporter.mergeContext();
+
+                // PSVI: error codes
+                fCurrentPSVI.fErrors = errors;
+                // PSVI: validity
+                fCurrentPSVI.fValidity =
+                    (errors == null) ? ElementPSVI.VALIDITY_VALID : ElementPSVI.VALIDITY_INVALID;
+            } else {
+                // PSVI: validity
+                fCurrentPSVI.fValidity = ElementPSVI.VALIDITY_NOTKNOWN;
+                // Discard the current context: ignore any error happened within
+                // the sub-elements/attributes of this element, because those
+                // errors won't affect the validity of the parent elements.
+                fXSIErrorReporter.popContext();
+            }
+
+            if (root) {
+                // store [schema information] in the PSVI
+                fCurrentPSVI.fGrammars = grammars;
+                fCurrentPSVI.fSchemaInformation = null;
+            }
+        }
+
+        return augs;
+
+    }
+
+    Augmentations getEmptyAugs(Augmentations augs) {
+        if (augs == null) {
+            augs = fAugmentations;
+            augs.removeAllItems();
+        }
+        augs.putItem(Constants.ELEMENT_PSVI, fCurrentPSVI);
+        fCurrentPSVI.reset();
+
+        return augs;
+    }
 
     void storeLocations(String sLocation, String nsLocation) {
         if (sLocation != null) {
@@ -2649,6 +2883,9 @@ public class XmlSchemaValidator
         // for each present attribute
         int attCount = attributes.getLength();
 
+        Augmentations augs = null;
+        AttributePSVImpl attrPSVI = null;
+
         boolean isSimple =
             fCurrentType == null || fCurrentType.getTypeCategory() == XSTypeDefinition.SIMPLE_TYPE;
 
@@ -2672,6 +2909,19 @@ public class XmlSchemaValidator
                 System.out.println("==>process attribute: " + fTempQName);
             }
 
+            if (fAugPSVI || fIdConstraint) {
+                augs = attributes.getAugmentations(index);
+                attrPSVI = (AttributePSVImpl) augs.getItem(Constants.ATTRIBUTE_PSVI);
+                if (attrPSVI != null) {
+                    attrPSVI.reset();
+                } else {
+                    attrPSVI = new AttributePSVImpl();
+                    augs.putItem(Constants.ATTRIBUTE_PSVI, attrPSVI);
+                }
+                // PSVI attribute: validation context
+                attrPSVI.fValidationContext = fValidationRoot;
+            }
+
             // Element Locally Valid (Type)
             // 3.1.1 The element information item's [attributes] must be empty, excepting those
             // whose [namespace name] is identical to http://www.w3.org/2001/XMLSchema-instance and
@@ -2693,7 +2943,7 @@ public class XmlSchemaValidator
                     attrDecl = XSI_NONAMESPACESCHEMALOCATION;
                 }
                 if (attrDecl != null) {
-                    processOneAttribute(element, attributes, index, attrDecl, null);
+                    processOneAttribute(element, attributes, index, attrDecl, null, attrPSVI);
                     continue;
                 }
             }
@@ -2736,6 +2986,9 @@ public class XmlSchemaValidator
                     reportSchemaError(
                         "cvc-complex-type.3.2.2",
                         new Object[] { element.rawname, fTempQName.rawname });
+
+                    // We have seen an attribute that was not declared
+                    fNFullValidationDepth = fElementDepth;
 
                     continue;
                 }
@@ -2789,7 +3042,7 @@ public class XmlSchemaValidator
                 }
             }
 
-            processOneAttribute(element, attributes, index, currDecl, currUse);
+            processOneAttribute(element, attributes, index, currDecl, currUse, attrPSVI);
         } // end of for (all attributes)
 
         // 5.2 If wild IDs is non-empty, there must not be any attribute uses among the {attribute uses} whose {attribute declaration}'s {type definition} is or is derived from ID.
@@ -2806,7 +3059,8 @@ public class XmlSchemaValidator
         XMLAttributes attributes,
         int index,
         XSAttributeDecl currDecl,
-        XSAttributeUseImpl currUse) {
+        XSAttributeUseImpl currUse,
+        AttributePSVImpl attrPSVI) {
 
         String attrValue = attributes.getValue(index);
         fXSIErrorReporter.pushContext();
@@ -2881,6 +3135,33 @@ public class XmlSchemaValidator
             }
         }
         if (fIdConstraint) {
+            attrPSVI.fValue.copyFrom(fValidatedInfo);
+        }
+
+        if (fAugPSVI) {
+            // PSVI: attribute declaration
+            attrPSVI.fDeclaration = currDecl;
+            // PSVI: attribute type
+            attrPSVI.fTypeDecl = attDV;
+
+            // PSVI: attribute normalized value
+            // NOTE: we always store the normalized value, even if it's invlid,
+            // because it might still be useful to the user. But when the it's
+            // not valid, the normalized value is not trustable.
+            attrPSVI.fValue.copyFrom(fValidatedInfo);
+
+            // PSVI: validation attempted:
+            attrPSVI.fValidationAttempted = AttributePSVI.VALIDATION_FULL;
+
+            // We have seen an attribute that was declared.
+            fNNoneValidationDepth = fElementDepth;
+
+            String[] errors = fXSIErrorReporter.mergeContext();
+            // PSVI: error codes
+            attrPSVI.fErrors = errors;
+            // PSVI: validity
+            attrPSVI.fValidity =
+                (errors == null) ? AttributePSVI.VALIDITY_VALID : AttributePSVI.VALIDITY_INVALID;
         }
     }
 
@@ -2943,6 +3224,22 @@ public class XmlSchemaValidator
                 }
                 else {
                     attrIndex = attributes.addAttribute(attName, "CDATA", normalized);
+                }
+
+                if (fAugPSVI) {
+
+                    // PSVI: attribute is "schema" specified
+                    Augmentations augs = attributes.getAugmentations(attrIndex);
+                    AttributePSVImpl attrPSVI = new AttributePSVImpl();
+                    augs.putItem(Constants.ATTRIBUTE_PSVI, attrPSVI);
+
+                    attrPSVI.fDeclaration = currDecl;
+                    attrPSVI.fTypeDecl = currDecl.getTypeDefinition();
+                    attrPSVI.fValue.copyFrom(defaultValue);
+                    attrPSVI.fValidationContext = fValidationRoot;
+                    attrPSVI.fValidity = AttributePSVI.VALIDITY_VALID;
+                    attrPSVI.fValidationAttempted = AttributePSVI.VALIDATION_FULL;
+                    attrPSVI.fSpecified = true;
                 }
             }
 
@@ -4308,16 +4605,14 @@ public class XmlSchemaValidator
         return fCurrentCM;
     }
 
-    public int getElementDepth() {
-        return fElementDepth;
-    }
+    public int getElementDepth() { return fElementDepth; }
 
     public int getSkipValidationDepth() {
         return fSkipValidationDepth;
     }
 
     public XSElementDeclaration getCurrentPSVIElementDecl() {
-        return fCurrentPSVIElementDecl;
+        return fCurrentPSVI.getElementDeclaration();
     }
 
     public XSGrammarBucket getGrammarBucket() {
