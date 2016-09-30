@@ -8,6 +8,7 @@ import com.thaiopensource.suggest.relaxng.pattern.*;
 import com.thaiopensource.suggest.relaxng.sax.Context;
 import com.thaiopensource.xml.util.Name;
 
+import com.thaiopensource.xml.util.WellKnownNamespaces;
 import org.relaxng.datatype.Datatype;
 import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
@@ -153,6 +154,25 @@ public class SuggesterImpl extends Context implements Suggester {
     return qNames.size() > 0 ? qNames.peek() : null;
   }
 
+  private String createNameValue(String localName, String nsUri, Map<String, String> nsPrefixMap) {
+    if ("".equals(nsUri)) nsUri = null;
+
+    String prefix = nsPrefixMap.get(nsUri);
+
+    // when the nsUri maps to nothing it needs to get included in the result
+    if (prefix == null) {
+      return nsUri == null
+          ? localName + "#"
+          : localName + '#' + nsUri;
+    };
+
+    // a prefix of "" means it matches the default namespace => return only localName
+    if ("".equals(prefix)) return localName;
+
+    return prefix + ":" + localName;
+  }
+
+
   @Override
   public List<ElementSuggestion> suggestElements() {
     List<ElementSuggestion> suggestions = new ArrayList<ElementSuggestion>();
@@ -160,39 +180,55 @@ public class SuggesterImpl extends Context implements Suggester {
     NormalizedSuggestions nss = matcher.getStartTagSuggestions();
 
     Set<String> nsValues = new HashSet<String>();
-    String defaultNsUri = null;
+
+    Map<String, String> elementNsPrefixMap = getElementNsPrefixMap();
 
     if (nss.isAnyNameIncluded()) {
-      Map<String, String> prefixMap = getPrefixMap();
-
-      prefixMap.remove("xml");
-      prefixMap.put(null, "*");
-      defaultNsUri = prefixMap.get("");
-
       Set<String> excludedNamespaces = new HashSet<String>();
       for (NamespaceSuggestion s : nss.getExcludedNamespaces()) {
         excludedNamespaces.add(s.getNamespace());
       }
 
-      for (Map.Entry<String, String> entry : prefixMap.entrySet()) {
-        String nsUri = entry.getValue();
+      nsValues.add(createNameValue("*", "*", elementNsPrefixMap));
 
+      for (String nsUri : elementNsPrefixMap.keySet()) {
         if (!excludedNamespaces.contains(nsUri)) {
-          String prefix = entry.getKey();
-          nsValues.add(createNamespaceValue(nsUri, prefix, defaultNsUri));
+          nsValues.add(createNameValue("*", nsUri, elementNsPrefixMap));
         }
       }
     }
 
     if (nss.hasNamedInclusions()) {
-      if (defaultNsUri == null) defaultNsUri = resolveNamespacePrefix("");
+      Map<String, String> attributeNsPrefixMap = getAttributeNsPrefixMap();
 
       Set<NameSuggestion> names = nss.getIncludedNames();
-      suggestions.addAll(formatElementSuggestions(names, defaultNsUri));
+
+      for (NameSuggestion mentionedName : names) {
+
+        Name name = mentionedName.getName();
+        String value = createNameValue(name.getLocalName(), name.getNamespaceUri(), elementNsPrefixMap);
+
+        matcher.matchStartTagOpen(name, "", this);
+
+        Set<Name> allRequiredAttNames = matcher.requiredAttributeNames();
+        List<String> attributes = null;
+
+        if (!allRequiredAttNames.isEmpty()) {
+          attributes = new ArrayList<String>();
+          for (Name attName : allRequiredAttNames) {
+            attributes.add(createNameValue(attName.getLocalName(),
+                attName.getNamespaceUri(), attributeNsPrefixMap));
+          }
+        }
+
+        List<String> annotations = createAnnotations(mentionedName.getPattern(), mentionedName.getNameClass());
+
+        suggestions.add(new ElementSuggestion(value, annotations, attributes, false));
+      }
 
       Set<NamespaceSuggestion> namespaces = nss.getIncludedNamespaces();
       for (NamespaceSuggestion namespace : namespaces) {
-        nsValues.add(createNamespaceValue(namespace.getNamespace(), defaultNsUri));
+        nsValues.add(createNameValue("*", namespace.getNamespace(), elementNsPrefixMap));
       }
     }
 
@@ -201,36 +237,6 @@ public class SuggesterImpl extends Context implements Suggester {
     }
 
     return suggestions;
-  }
-
-  private List<ElementSuggestion> formatElementSuggestions(Set<NameSuggestion> names, String defaultNsUri) {
-    List<ElementSuggestion> results = new ArrayList<ElementSuggestion>();
-
-    for (NameSuggestion name : names) {
-      results.add(formatElementSuggestion(name, defaultNsUri));
-    }
-    return results;
-  }
-
-  private ElementSuggestion formatElementSuggestion(NameSuggestion mentionedName, String defaultNsUri) {
-    Name name = mentionedName.getName();
-    String value = createElementNameValue(name, defaultNsUri);
-
-    matcher.matchStartTagOpen(name, "", this);
-
-    Set<Name> allRequiredAttNames = matcher.requiredAttributeNames();
-    List<String> attributes = null;
-
-    if (!allRequiredAttNames.isEmpty()) {
-      attributes = new ArrayList<String>();
-      for (Name attName : allRequiredAttNames) {
-        attributes.add(createAttributeNameValue(attName));
-      }
-    }
-
-    List<String> annotations = createAnnotations(mentionedName.getPattern(), mentionedName.getNameClass());
-
-    return new ElementSuggestion(value, annotations, attributes, false);
   }
 
   private List<String> createAnnotations(Pattern pattern, NameClass nameClass) {
@@ -249,70 +255,6 @@ public class SuggesterImpl extends Context implements Suggester {
     return null;
   }
 
-  private String createElementNameValue(Name name, String defaultNsUri) {
-    StringBuilder sb = new StringBuilder();
-
-    String localName = name.getLocalName();
-    String nsUri = name.getNamespaceUri();
-    if (defaultNsUri != null && defaultNsUri.equals(nsUri)) {
-      sb.append(localName);
-    } else {
-      String prefix = getPrefix(nsUri);
-      if (prefix != null) {
-        sb.append(prefix);
-        sb.append(":");
-        sb.append(localName);
-      } else {
-        sb.append(localName);
-        sb.append("#");
-        sb.append(nsUri);
-      }
-    }
-    return sb.toString();
-  }
-
-  private String createNamespaceValue(String namespace, String defaultNsUri) {
-    if (defaultNsUri != null && defaultNsUri.equals(namespace)) {
-      return "*";
-    }
-
-    String prefix = getPrefix(namespace);
-    return prefix != null && !"".equals(prefix)
-      ? prefix + ":*"
-      : "*#" + namespace;
-  }
-
-  private String createNamespaceValue(String namespace, String prefix, String defaultNsUri) {
-    if (defaultNsUri != null && defaultNsUri.equals(namespace)) {
-      return "*";
-    }
-
-    return prefix != null && !"".equals(prefix)
-      ? prefix + ":*"
-      : "*#" + namespace;
-  }
-
-  private String createAttributeNameValue(Name name) {
-    StringBuilder sb = new StringBuilder();
-    String localName = name.getLocalName();
-    String nsUri = name.getNamespaceUri();
-    if ("".equals(nsUri)) {
-      sb.append(localName);
-    } else {
-      String prefix = getPrefix(nsUri);
-      if (prefix != null && !"".equals(prefix)) {
-        sb.append(prefix);
-        sb.append(":");
-        sb.append(localName);
-      } else {
-        sb.append(localName);
-        sb.append("#");
-        sb.append(nsUri);
-      }
-    }
-    return sb.toString();
-  }
-
   @Override
   public List<AttributeNameSuggestion> suggestAttributeNames() {
     List<AttributeNameSuggestion> suggestions = new ArrayList<AttributeNameSuggestion>();
@@ -322,25 +264,20 @@ public class SuggesterImpl extends Context implements Suggester {
     NormalizedSuggestions nss = matcher.getAttributeNameSuggestions();
 
     Set<String> nsValues = new HashSet<String>();
-    String defaultNsUri = "";
+
+    Map<String, String> attributeNsPrefixMap = getAttributeNsPrefixMap();
 
     if (nss.isAnyNameIncluded()) {
-      Map<String, String> prefixMap = getPrefixMap();
-
-      prefixMap.put(null, "*");
-      prefixMap.put("", defaultNsUri);
-
       Set<String> excludedNamespaces = new HashSet<String>();
       for (NamespaceSuggestion s : nss.getExcludedNamespaces()) {
         excludedNamespaces.add(s.getNamespace());
       }
 
-      for (Map.Entry<String, String> entry : prefixMap.entrySet()) {
-        String nsUri = entry.getValue();
+      nsValues.add(createNameValue("*", "*", attributeNsPrefixMap));
 
+      for (String nsUri : attributeNsPrefixMap.keySet()) {
         if (!excludedNamespaces.contains(nsUri)) {
-          String prefix = entry.getKey();
-          nsValues.add(createNamespaceValue(nsUri, prefix, defaultNsUri));
+          nsValues.add(createNameValue("*", nsUri, attributeNsPrefixMap));
         }
       }
     }
@@ -350,28 +287,21 @@ public class SuggesterImpl extends Context implements Suggester {
       Attributes existingAtts = lastAtts;
       Set<NameSuggestion> names = rejectExistingAttributes(allNames, existingAtts);
 
-      suggestions.addAll(formatPossibleAttributeSuggestions(names));
+      for (NameSuggestion mn : names) {
+        Name name = mn.getName();
+        String value = createNameValue(name.getLocalName(), name.getNamespaceUri(), attributeNsPrefixMap);
+        List<String> annotations = createAnnotations(mn.getPattern(), mn.getNameClass());
+        suggestions.add(new AttributeNameSuggestion(value, annotations));
+      }
 
       Set<NamespaceSuggestion> namespaces = nss.getIncludedNamespaces();
       for (NamespaceSuggestion namespace : namespaces) {
-        nsValues.add(createNamespaceValue(namespace.getNamespace(), defaultNsUri));
+        nsValues.add(createNameValue("*", namespace.getNamespace(), attributeNsPrefixMap));
       }
     }
 
     for (String value : nsValues) {
       suggestions.add(new AttributeNameSuggestion(value, null));
-    }
-
-    return suggestions;
-  }
-
-  private List<AttributeNameSuggestion> formatPossibleAttributeSuggestions(Set<NameSuggestion> attNames) {
-    List<AttributeNameSuggestion> suggestions = new ArrayList<AttributeNameSuggestion>();
-
-    for (NameSuggestion mn : attNames) {
-      String value = createAttributeNameValue(mn.getName());
-      List<String> annotations = createAnnotations(mn.getPattern(), mn.getNameClass());
-      suggestions.add(new AttributeNameSuggestion(value, annotations));
     }
 
     return suggestions;

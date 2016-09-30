@@ -376,7 +376,8 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
     }
 
     if (expectedEls.size() > 0) {
-      Map<String, String> prefixMap = getPrefixMap(namespaceContext);
+      Map<String, String> elementNsPrefixMap = getElementNsPrefixMap(namespaceContext);
+      Map<String, String> attributeNsPrefixMap = getAttributeNsPrefixMap(namespaceContext);
 
       Set<String> nsUris = new HashSet<String>();
 
@@ -384,7 +385,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
         if (obj instanceof XSWildcardDecl) {
           XSWildcardDecl wildcardDecl = (XSWildcardDecl) obj;
 
-          addWildcardComponents(wildcardDecl, XSConstants.ELEMENT_DECLARATION, expectedEls, nsUris, prefixMap);
+          addWildcardComponents(wildcardDecl, XSConstants.ELEMENT_DECLARATION, expectedEls, nsUris, elementNsPrefixMap);
         }
       }
 
@@ -392,12 +393,12 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
         if (obj instanceof XSElementDecl) {
           XSElementDecl elDecl = (XSElementDecl) obj;
 
-          String value = getElementNameValue(elDecl, prefixMap);
+          String value = createNameValue(elDecl.getName(), elDecl.getNamespace(), elementNsPrefixMap);
 
           List<String> attributes = null;
           XSAttributeGroupDecl attrGrp = getAttributeGroup(elDecl);
           if (attrGrp != null) {
-            Set<String> attributesSet = getRequiredAttributes(attrGrp, prefixMap);
+            Set<String> attributesSet = getRequiredAttributes(attrGrp, attributeNsPrefixMap);
             if (!attributesSet.isEmpty()) {
               attributes = new ArrayList<String>();
               attributes.addAll(attributesSet);
@@ -411,63 +412,28 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
       }
 
       for (String nsUri : nsUris) {
-        suggestions.add(getElementNamespaceSuggestion(nsUri, prefixMap));
+        String value = createNameValue("*", nsUri, elementNsPrefixMap);
+        suggestions.add(new ElementSuggestion(value, null, null, false));
       }
     }
 
     return suggestions;
   }
 
-  private String getElementNameValue(XSElementDecl elDecl, Map<String, String> prefixMap) {
-    String nsUri = elDecl.getNamespace();
-    String localName = elDecl.getName();
-    String prefix = prefixMap.get(nsUri);
+  private String createNameValue(String localName, String nsUri, Map<String, String> nsPrefixMap) {
+    String prefix = nsPrefixMap.get(nsUri);
 
-    if (prefix != null) {
-      return "".equals(prefix) ? localName : prefix + ":" + localName;
-    }
-
-    return localName + '#' + nsUri;
-  }
-
-  private ElementSuggestion getElementNamespaceSuggestion(String nsUri, Map<String, String> prefixMap) {
-    String value;
-    String prefix = prefixMap.get(nsUri);
-
+    // when the nsUri maps to nothing it needs to get included in the result
     if (prefix == null) {
-      value = "*#" + nsUri;
-    } else if ("".equals(prefix)) {
-      value = "*";
-    } else {
-      value = prefix + ":*";
-    }
-    return new ElementSuggestion(value, null, null, false);
-  }
+      return nsUri == null
+        ? localName + "#"
+        : localName + '#' + nsUri;
+    };
 
-  private String getAttributeNameValue(XSAttributeDecl attrDecl, Map<String, String> prefixMap) {
-    String nsUri = attrDecl.getNamespace();
-    String localName = attrDecl.getName();
-    String prefix;
+    // a prefix of "" means it matches the default namespace => return only localName
+    if ("".equals(prefix)) return localName;
 
-    if (nsUri == null || "".equals(prefix = prefixMap.get(nsUri))) return localName;
-
-    return prefix == null
-        ? localName + "#" + nsUri
-        : prefix + ":" + localName;
-  }
-
-  private AttributeNameSuggestion getAttributeNamespaceSuggestion(String nsUri, Map<String, String> prefixMap) {
-    String value;
-    String prefix;
-    if (nsUri == null || "".equals(prefix = prefixMap.get(nsUri))) {
-      value = "*";
-    } else if (prefix == null) {
-      value = "*#" + nsUri;
-    } else {
-      value = prefix + ":*";
-    }
-
-    return new AttributeNameSuggestion(value, null);
+    return prefix + ":" + localName;
   }
 
   private List<String> getAnnotations(AnnotationSerializer annotationSerializer, XSAnnotation annot) {
@@ -487,7 +453,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
     XSElementDeclaration elDecl = schemaValidator.getCurrentPSVIElementDecl();
     if (elDecl != null) {
 
-      Map<String, String> prefixMap = getPrefixMap(namespaceContext);
+      Map<String, String> attributeNsPrefixMap = getAttributeNsPrefixMap(namespaceContext);
 
       XSAttributeGroupDecl attrGrp = getAttributeGroup(elDecl);
       if (attrGrp != null) {
@@ -498,7 +464,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
 
         XSWildcardDecl wildcardDecl = (XSWildcardDecl) attrGrp.getAttributeWildcard();
         if (wildcardDecl != null) {
-          addWildcardComponents(wildcardDecl, XSConstants.ATTRIBUTE_DECLARATION, attrDecls, nsUris, prefixMap);
+          addWildcardComponents(wildcardDecl, XSConstants.ATTRIBUTE_DECLARATION, attrDecls, nsUris, attributeNsPrefixMap);
         }
 
         AnnotationSerializer annotationSerializer = new AnnotationSerializer();
@@ -509,7 +475,8 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
             String nsUri = attrDecl.getNamespace() == null ? "" : attrDecl.getNamespace();
 
             if (originalAttributes.getIndex(nsUri, attrDecl.getName()) == -1) {
-              String value = getAttributeNameValue(attrDecl, prefixMap);
+              String value = createNameValue(attrDecl.getName(),
+                  attrDecl.getNamespace(), attributeNsPrefixMap);
               List<String> annotations = getAnnotations(annotationSerializer, attrDecl.getAnnotation());
               suggestions.add(new AttributeNameSuggestion(value, annotations));
             }
@@ -517,7 +484,8 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
         }
 
         for (String nsUri : nsUris) {
-          suggestions.add(getAttributeNamespaceSuggestion(nsUri, prefixMap));
+          String value = createNameValue("*", nsUri, attributeNsPrefixMap);
+          suggestions.add(new AttributeNameSuggestion(value, null));
         }
       }
     }
@@ -537,7 +505,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
     if (elDecl != null) {
       XSAttributeGroupDecl attrGrp = getAttributeGroup(elDecl);
       if (attrGrp != null) {
-        Map<String, String> prefixMap = getPrefixMap(namespaceContext);
+        Map<String, String> attributeNsPrefixMap = getAttributeNsPrefixMap(namespaceContext);
 
         XSObjectList attrUses = attrGrp.getAttributeUses();
         XSAttributeUseImpl currUse = null;
@@ -549,7 +517,8 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
           currUse = (XSAttributeUseImpl) attrUses.item(i);
           currDecl = currUse.fAttrDecl;
 
-          String value = getAttributeNameValue(currDecl, prefixMap);
+          String value = createNameValue(currDecl.getName(),
+              currDecl.getNamespace(), attributeNsPrefixMap);
           if (value.equals(attrQName)) {
             foundMatch = true;
             break;
@@ -756,16 +725,45 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
     return true;
   }
 
-  private Map<String, String> getPrefixMap(NamespaceContext namespaceContext) {
-    Map<String, String> prefixMap = new HashMap<String, String>();
-    prefixMap.put(XMLConstants.XML_NS_URI, XMLConstants.XML_NS_PREFIX);
+  private Map<String, String> getElementNsPrefixMap(NamespaceContext namespaceContext) {
+    Map<String, String> nsPrefixMap = new HashMap<String, String>();
+
     Enumeration prefixes = namespaceContext.getAllPrefixes();
     while (prefixes.hasMoreElements()) {
       String prefix = (String) prefixes.nextElement();
       String nsUri = namespaceContext.getURI(prefix);
-      prefixMap.put(nsUri, prefix);
+      nsPrefixMap.put(nsUri, prefix);
     }
-    return prefixMap;
+
+    // when there's no default namespace, map null to ""
+    if (!nsPrefixMap.containsValue("")) {
+      nsPrefixMap.put(null, "");
+    }
+
+    return nsPrefixMap;
+  }
+
+  private Map<String, String> getAttributeNsPrefixMap(NamespaceContext namespaceContext) {
+    Map<String, String> nsPrefixMap = new HashMap<String, String>();
+
+    Enumeration prefixes = namespaceContext.getAllPrefixes();
+    while (prefixes.hasMoreElements()) {
+      String prefix = (String) prefixes.nextElement();
+
+      // default NS needs to get skipped in attribute prefix map
+      if (!"".equals(prefix)) {
+        String nsUri = namespaceContext.getURI(prefix);
+        nsPrefixMap.put(nsUri, prefix);
+      }
+    }
+
+    // add xml NS mapping
+    nsPrefixMap.put(XMLConstants.XML_NS_URI, XMLConstants.XML_NS_PREFIX);
+
+    // add attribute default NS mapping
+    nsPrefixMap.put(null, "");
+
+    return nsPrefixMap;
   }
 
   private XSAttributeGroupDecl getAttributeGroup(XSElementDeclaration elDecl) {
@@ -778,14 +776,15 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
   }
 
   private Set<String> getRequiredAttributes(XSAttributeGroupDecl attrGrp,
-                                            Map<String, String> prefixMap) {
+                                            Map<String, String> nsPrefixMap) {
 
     Set<XSAttributeDecl> attrDecls = getUseAttrDecls(attrGrp, false);
 
     Set<String> attrStrings = new HashSet<String>();
 
     for (XSAttributeDecl attrDecl : attrDecls) {
-      String str = getAttributeNameValue(attrDecl, prefixMap);
+      String str = createNameValue(attrDecl.getName(),
+          attrDecl.getNamespace(), nsPrefixMap);
       attrStrings.add(str);
     }
 
@@ -793,7 +792,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
   }
 
   private void addWildcardComponents(XSWildcardDecl wildcardDecl, short componentType, Set<Object> expectedComponents,
-                                     Set<String> nsUris, Map<String, String> prefixMap) {
+                                     Set<String> nsUris, Map<String, String> nsPrefixMap) {
     SchemaGrammar[] grammars = schemaValidator.getGrammarBucket().getGrammars();
 
     boolean isStrict = wildcardDecl.getProcessContents() == XSWildcard.PC_STRICT;
@@ -832,10 +831,9 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
         }
       }
 
-
       if (!isStrict) {
         nsUris.add("*");
-        Set<String> prefixMapNsUris = new HashSet<String>(prefixMap.keySet());
+        Set<String> prefixMapNsUris = new HashSet<String>(nsPrefixMap.keySet());
         if (componentType == XSConstants.ELEMENT_DECLARATION) {
           prefixMapNsUris.remove(XMLConstants.XML_NS_URI);
         }
@@ -866,7 +864,7 @@ public class SuggesterImpl extends ParserConfigurationSettings implements Sugges
 
       if (!isStrict) {
         nsUris.add("*");
-        Set<String> prefixMapNsUris = new HashSet<String>(prefixMap.keySet());
+        Set<String> prefixMapNsUris = new HashSet<String>(nsPrefixMap.keySet());
         if (componentType == XSConstants.ELEMENT_DECLARATION) {
           prefixMapNsUris.remove(XMLConstants.XML_NS_URI);
         }

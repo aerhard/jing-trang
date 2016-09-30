@@ -71,15 +71,39 @@ public class Context extends DtdContext implements MatchContext {
     return null;
   }
 
-  public Map<String, String> getPrefixMap() {
-    Map<String, String> prefixMap = new HashMap<String, String>();
+  public Map<String, String> getElementNsPrefixMap() {
+    Map<String, String> nsPrefixMap = new HashMap<String, String>();
     PrefixMapping tem = prefixMapping;
     do {
-      if (!prefixMap.containsKey(tem.prefix)) {
-        prefixMap.put(tem.prefix, tem.namespaceURI);
+      if (!WellKnownNamespaces.XML.equals(tem.namespaceURI) &&
+          !nsPrefixMap.containsValue(tem.namespaceURI) &&
+          !nsPrefixMap.containsKey(tem.prefix)) {
+        nsPrefixMap.put(tem.namespaceURI, tem.prefix);
       }
       tem = tem.previous;
     } while (tem != null);
-    return prefixMap;
+
+    if (!nsPrefixMap.containsValue("")) {
+      nsPrefixMap.put(null, "");
+    }
+
+    return nsPrefixMap;
+  }
+
+  public Map<String, String> getAttributeNsPrefixMap() {
+    Map<String, String> nsPrefixMap = new HashMap<String, String>();
+    PrefixMapping tem = prefixMapping;
+    do {
+      if (!"".equals(tem.prefix) &&
+          !nsPrefixMap.containsValue(tem.namespaceURI) &&
+          !nsPrefixMap.containsKey(tem.prefix)) {
+        nsPrefixMap.put(tem.namespaceURI, tem.prefix);
+      }
+      tem = tem.previous;
+    } while (tem != null);
+
+    nsPrefixMap.put(null, "");
+
+    return nsPrefixMap;
   }
 }
