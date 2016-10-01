@@ -19,7 +19,7 @@
   <!-- the order is important, because it controls the order of the service providers;
        validate should be last because it provides fallback implementations in terms of other interfaces -->
   <depends module="validate"/>
-  <compile/>
+  <!--<compile/>-->
   <jar>
     <manifest>
       <attribute name="Main-Class" value="com/thaiopensource/relaxng/util/Driver"/>
